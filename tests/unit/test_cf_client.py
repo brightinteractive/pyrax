@@ -7,7 +7,7 @@ import random
 import unittest
 import uuid
 
-from mock import ANY, patch
+from mock import ANY, call, patch
 from mock import MagicMock as Mock
 
 import pyrax
@@ -560,6 +560,44 @@ class CF_ClientTest(unittest.TestCase):
             # Large files require 1 call for manifest, plus one for each
             # segment. This should be a 2-segment file upload.
             self.assertEqual(client.connection.put_object.call_count, 3)
+            put_calls = client.connection.put_object.mock_calls
+            self.assertEqual(put_calls[0][1][1], '%s.1' % fname)
+            self.assertEqual(put_calls[1][1][1], '%s.2' % fname)
+            self.assertEqual(put_calls[2][1][1], fname)
+
+            # get_object() should be called with the same name that was passed
+            # to the final put_object() call (to get the object to return)
+            client.get_object.assert_called_once_with(cont, fname)
+        client.get_object = gobj
+
+    @patch('pyrax.cf_wrapper.client.Container', new=FakeContainer)
+    def test_upload_large_file_from_file_object(self):
+        client = self.client
+        client.connection.head_container = Mock()
+        client.connection.put_object = Mock()
+        cont = client.get_container(self.cont_name)
+        gobj = client.get_object
+        client.get_object = Mock(return_value=self.fake_object)
+        with utils.SelfDeletingTempfile() as tmpname:
+            small_file_contents = "Test Value " * 25
+            client.max_file_size = len(small_file_contents) - 1
+            with open(tmpname, "wb") as tmp:
+                tmp.write(small_file_contents)
+            fname = os.path.basename(tmpname)
+            fake_type = "test/test"
+            with open(tmpname, "rb") as tmp:
+                client.upload_file(cont, tmp, content_type=fake_type)
+            # Large files require 1 call for manifest, plus one for each
+            # segment. This should be a 2-segment file upload.
+            self.assertEqual(client.connection.put_object.call_count, 3)
+            put_calls = client.connection.put_object.mock_calls
+            self.assertEqual(put_calls[0][1][1], '%s.1' % fname)
+            self.assertEqual(put_calls[1][1][1], '%s.2' % fname)
+            self.assertEqual(put_calls[2][1][1], fname)
+
+            # get_object() should be called with the same name that was passed
+            # to the final put_object() call (to get the object to return)
+            client.get_object.assert_called_once_with(cont, fname)
         client.get_object = gobj
 
     @patch('pyrax.cf_wrapper.client.Container', new=FakeContainer)
